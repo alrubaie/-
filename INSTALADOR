@@ -1,0 +1,218 @@
+#!/bin/bash
+instalador_version=0.5
+# Colores
+CIERRE=${CIERRE:-"[0m"}
+ROJO=${ROJO:-"[1;31m"}
+VERDE=${VERDE:-"[1;32m"}
+AMARILLO=${AMARILLO:-"[1;33m"}
+CYAN=${CYAN:-"[1;36m"}
+
+clear
+
+Internet(){
+# COMPROBAR ACCESO A INTERNET POR GEMINIS DEMON
+if [ ! "$(ping google.com -c1 2>/dev/null)" ]; then
+      echo "PARA PODER INSTALAR ESTA APLICACION ES NECESARIO DISPONER DE CONEXION A INTERNET"
+      echo ""
+      sleep 1
+      exit 0
+fi
+}
+
+# Si el sistema no tiene reaver_pixie se baja ,parchea compila e instala
+dependencia_reaver_pixie(){
+echo "DESCARGANDO REAVER"
+svn checkout http://reaver-wps.googlecode.com/svn/trunk/ reaver-wps-read-only
+echo ""
+echo "APLICANDO PARCHE REAVER"
+cd reaver-wps-read-only/
+patch -Np1 -i ../Parche_Reaver_5.1MOD.patch 
+echo ""
+echo "COMPILANDO REAVER"
+cd src
+./configure || exit 1
+make || exit 1
+cp -rf reaver /usr/bin/reaver_pixie
+cd ..
+cd ..
+rm -rf reaver-wps-read-only/
+}
+
+if ! hash reaver_pixie &>/dev/null ; then
+echo "$ROJO"
+echo "Dependencia reaver_pixie NO se cumple ... solucionando."
+echo "$CIERRE"
+Internet
+dependencia_reaver_pixie
+copiar_reaver_pixie=si
+else
+echo "$VERDE"
+echo "Dependencia reaver_pixie se cumple ... continuamos."
+echo "$CIERRE"
+copiar_reaver_pixie=no
+sleep 1
+fi
+
+# Si el sistema no tiene pixiewps se baja, compila e instala
+dependencia_pixiewps(){
+echo ""
+echo "DESCARGANDO PIXIEWPS 1.0"
+wget https://github.com/wiire/pixiewps/archive/master.zip
+echo ""
+echo "DESCOMPRIMIENDO PIXIEWPS"
+unzip master.zip
+echo ""
+echo "INSTALANDO PIXIEWPS"
+cd pixiewps-master
+cd src
+make || exit 1 
+cp -rf pixiewps /usr/bin/pixiewps
+cd ..
+cd ..
+rm  master.zip
+rm -rf pixiewps-master
+}
+
+if ! hash pixiewps &>/dev/null ; then
+echo "$ROJO"
+echo "Dependencia pixiewps NO se cumple ... solucionando."
+echo "$CIERRE"
+Internet
+dependencia_pixiewps
+copiar_pixiewps=si
+else 
+echo "$VERDE"
+echo "Dependencia pixiewps se cumple ... continuamos."
+echo "$CIERRE"
+copiar_pixiewps=no
+sleep 1
+fi
+
+######################################################################################
+#### HASTA AQUI DESCARGA E INSTALACION DE DEPENDENCIAS, AHORA EL PROPIO PIXIESCRIPT ##
+######################################################################################
+
+# Cd a la ruta del script
+# Con esto dara igual si se abrio la terminal en la misma carpeta o en otra ruta
+cd $(echo $0 | sed "s/$(basename $0)//g")
+
+# Buscamos los iconos y los movemos
+buscar_iconos=`find . -name "*.png"`
+for x in $buscar_iconos; do
+cp -rf $x /tmp
+done
+if [ -f /tmp/icono.png ]; then
+mv -f /tmp/icono.png /usr/share/pixmaps/PixieScript.png
+fi
+if [ -f /tmp/keys.png ]; then
+mv -f /tmp/keys.png /usr/share/pixmaps/PixieKeys.png
+fi
+
+# Miramos si estamos en wifislax
+if [ -f /etc/wifislax-version ]; then
+wifislax="true"
+else
+wifislax="false"
+fi
+
+# Miramos version del script
+buscar_PixieScript=`find . -name 'PixieScript.sh'`
+script_version=`head -3 $buscar_PixieScript | tail -1 | awk -F"\"" {'print $2'}`
+
+# Permisos a ejecutables
+ruta=`pwd`
+chmod 777 $ruta/*/* &>/dev/null
+
+#### Instalamos en sistema ####
+# Si la ruta existe , hay una version vieja ,por lo que sera eliminada
+# Se regenerara la ruta para instalacion limpia
+ruta_install=/opt/PixieScript
+if [ -d $ruta_install ]; then
+rm -rf $ruta_install
+mkdir -p $ruta_install
+else
+mkdir -p $ruta_install
+fi
+
+# Copiamos todo a la ruta de sistema
+cp -rf $ruta/* $ruta_install
+
+# Generamos el fichero desktop
+# Si estamos en wifislax , la ruta variara
+if [ $wifislax = true ]; then
+ruta_desktop=/usr/share/applications/wifislax/Wpa_wps
+#### Generamos el acceso directo a la carpeta Keys
+ln -f -s $ruta_install/PIXIESCRIPT_KEYS /opt/Wireless-Keys/PixieScript    
+else
+ruta_desktop=/usr/share/applications
+ln -f -s $ruta_install/PIXIESCRIPT_KEYS $HOME/Desktop/PixieScript_Keys
+fi
+
+# Definimos categoria en la que aparecera el lanzador del menu
+if [ $wifislax = true ]; then
+Categories="Wpa wps;"
+else
+Categories="Network;"
+fi
+
+# Ahora el fichero
+echo "[Desktop Entry]
+Categories=$Categories
+Comment=by 5.1 
+Exec=sh -c "$ruta_install/PixieScript.sh';${SHELL:-bash}'"
+Icon=PixieScript
+Name=PixieScript
+Path=$ruta_install
+StartupNotify=false
+Terminal=true
+Type=Application
+Version=1.0" > $ruta_desktop/PixieScript.desktop
+
+echo ""
+echo "Instalador version ${AMARILLO}$instalador_version${CIERRE}"
+echo ""
+echo "Permisos concedidos y acceso creado en el menu en la categoria ${VERDE}$Categories${CIERRE}"
+echo ""
+if [ $wifislax = true ]; then
+echo "Detectado sistema ${VERDE}wifislax${CIERRE}... ${AMARILO}¿quieres crear un modulo xzm para usarlo en modo live?${CIERRE}"
+echo ""
+echo "Pulsa ${ROJO}ENTER${CIERRE} para crear xzm o ${ROJO}CIERRA${CIERRE} el script si no necesitas el modulo xzm"
+read
+mkdir -p /tmp/PixieScript${ruta_install} 
+mkdir -p /tmp/PixieScript/usr/share/{pixmaps,applications/wifislax/Wpa_wps}
+cp -rf $ruta/* /tmp/PixieScript${ruta_install}
+cp -rf $ruta_desktop/PixieScript.desktop /tmp/PixieScript/$ruta_desktop
+cp -rf /usr/share/pixmaps/PixieScript.png /tmp/PixieScript/usr/share/pixmaps
+####################################
+## Aqui generamos la carpeta keys ##
+####################################
+mkdir -p /tmp/PixieScript/opt/Wireless-Keys/
+ln -f -s $ruta_install/PIXIESCRIPT_KEYS /tmp/PixieScript/opt/Wireless-Keys/PixieScript
+cp -rf /usr/share/pixmaps/PixieKeys.png /tmp/PixieScript/usr/share/pixmaps
+########################################################
+## Variable que copiara los binarios que no tengamos  ##
+########################################################
+if [ $copiar_pixiewps = si ]; then
+mkdir -p /tmp/PixieScript/usr/bin
+cp -rf /usr/bin/pixiewps /tmp/PixieScript/usr/bin/pixiewps
+fi
+if [ $copiar_reaver_pixie = si ]; then
+mkdir -p /tmp/PixieScript/usr/bin
+cp -rf /usr/bin/reaver_pixie /tmp/PixieScript/usr/bin/reaver_pixie
+fi
+##########################################################################################################
+# Por si acaso volvemos a dar permisos
+chmod 777 /tmp/PixieScript/*/* &>/dev/null
+# Estripamos
+stripdir /tmp/PixieScript &>/dev/null
+# Creamos xzm
+dir2xzm /tmp/PixieScript /tmp/PixieScript-$script_version-i486-1sw.xzm
+# Limpieza
+rm -rf /tmp/PixieScript
+# Movemos el xzm a escritorio
+mv -f /tmp/PixieScript-$script_version-i486-1sw.xzm $HOME/Desktop/
+fi
+echo ""
+echo "${CYAN}Instalacion completada${CIERRE}"
+echo "${AMARILLO}Bye Bye${CIERRE}"
+exit 0
